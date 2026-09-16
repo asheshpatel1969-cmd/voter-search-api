@@ -1,10 +1,11 @@
-import csv
 import os
+import firebase_admin
+from firebase_admin import credentials, firestore
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from rapidfuzz import fuzz
 
-app = FastAPI(title="Voter Search Engine API")
+app = FastAPI(title="Voter Search Engine API via Firestore")
 
 # Enable CORS so your FlutterFlow app can securely talk to this API
 app.add_middleware(
@@ -18,27 +19,41 @@ app.add_middleware(
 # Global dictionary to store voter lists for all constituencies in memory
 CONSTITUENCY_DATABASES = {}
 
-def load_csv_data():
-    """Automatically loads any CSV file in this folder into the server's RAM"""
-    current_directory = os.getcwd()
-    for filename in os.listdir(current_directory):
-        if filename.endswith(".csv"):
-            # Strip the '.csv' extension to use as a database key name
-            db_key = filename.replace(".csv", "").strip()
-            records = []
-            try:
-                with open(filename, mode='r', encoding='utf-8-sig') as file:
-                    reader = csv.DictReader(file)
-                    for row in reader:
-                        records.append(row)
-                CONSTITUENCY_DATABASES[db_key] = records
-                print(f" Loaded database key '{db_key}' with {len(records)} voters.")
-            except Exception as e:
-                print(f"❌ Error loading file {filename}: {e}")
+# Initialize Firebase Admin SDK
+# Ensure 'firebase_credentials.json' is placed in the root folder of your project
+cred = credentials.Certificate("firebase_credentials.json")
+firebase_admin.initialize_app(cred)
+db = firestore.client()
 
-# Load all CSV databases instantly when the server launches
-print("Initializing databases into server RAM...")
-load_csv_data()
+def load_firestore_data():
+    """Dynamically loads specified collections or all known voter collections from Firestore into RAM"""
+    print("Fetching dynamic data from Firestore collections...")
+    
+    # ⚠️ List down your active Firestore collections here so the server knows what to pre-load into RAM
+    collections_to_load = [
+        "nikol-master-voterslist", 
+        "raopura-master-voterslist"
+    ]
+    
+    for coll_name in collections_to_load:
+        # Convert dashes or names to match your FlutterFlow key names if necessary
+        # We replace '-' with '_' to keep your working logic exact
+        db_key = coll_name.replace("-", "_").strip()
+        records = []
+        
+        try:
+            docs = db.collection(coll_name).stream()
+            for doc in docs:
+                records.append(doc.to_dict())
+                
+            CONSTITUENCY_DATABASES[db_key] = records
+            print(f" Loaded Firestore collection '{coll_name}' as key '{db_key}' with {len(records)} voters into RAM.")
+        except Exception as e:
+            print(f"❌ Error loading Firestore collection {coll_name}: {e}")
+
+# Load all Firestore databases instantly when the server launches
+print("Initializing databases into server RAM from Firestore...")
+load_firestore_data()
 
 
 @app.get("/search")
@@ -46,8 +61,9 @@ def search_voters(
     constituency_collection: str = Query(..., description="The name of the database collection"),
     search_query: str = Query(..., description="The text input typed by the user")
 ):
-    # Find the target database dynamically based on what FlutterFlow passes
-    target_db = CONSTITUENCY_DATABASES.get(constituency_collection.strip())
+    # Standardize incoming key name to match our database key
+    standardized_key = constituency_collection.replace("-", "_").strip()
+    target_db = CONSTITUENCY_DATABASES.get(standardized_key)
     
     if not target_db:
         return {"error": f"Database collection '{constituency_collection}' not found on server.", "results": []}
