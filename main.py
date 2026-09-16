@@ -1,12 +1,10 @@
+import csv
 import os
-import json
-import firebase_admin
-from firebase_admin import credentials, firestore
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from rapidfuzz import fuzz
 
-app = FastAPI(title="Dynamic On-Demand Voter Search API")
+app = FastAPI(title="Voter Search Engine API")
 
 # Enable CORS so your FlutterFlow app can securely talk to this API
 app.add_middleware(
@@ -17,59 +15,46 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Global dictionary to store voter lists in memory ONLY when requested
+# Global dictionary to store voter lists for all constituencies in memory
 CONSTITUENCY_DATABASES = {}
 
-# Initialize Firebase Admin SDK using Render's Environment Variable
-# This keeps your credentials secure and avoids GitHub security alerts!
-try:
-    service_account_info = json.loads(os.environ.get("FIREBASE_KEY_JSON"))
-    cred = credentials.Certificate(service_account_info)
-    firebase_admin.initialize_app(cred)
-    db = firestore.client()
-    print("🚀 Firebase Admin SDK initialized successfully via Environment Variables.")
-except Exception as e:
-    print(f"❌ Critical Error initializing Firebase: {e}")
-    print("Ensure you have set the 'FIREBASE_KEY_JSON' variable in Render Environment settings.")
+def load_csv_data():
+    """Automatically loads any CSV file in this folder into the server's RAM"""
+    current_directory = os.getcwd()
+    for filename in os.listdir(current_directory):
+        if filename.endswith(".csv"):
+            # Strip the '.csv' extension to use as a database key name
+            db_key = filename.replace(".csv", "").strip()
+            records = []
+            try:
+                with open(filename, mode='r', encoding='utf-8-sig') as file:
+                    reader = csv.DictReader(file)
+                    for row in reader:
+                        records.append(row)
+                CONSTITUENCY_DATABASES[db_key] = records
+                print(f" Loaded database key '{db_key}' with {len(records)} voters.")
+            except Exception as e:
+                print(f"❌ Error loading file {filename}: {e}")
+
+# Load all CSV databases instantly when the server launches
+print("Initializing databases into server RAM...")
+load_csv_data()
+
 
 @app.get("/search")
 def search_voters(
     constituency_collection: str = Query(..., description="The name of the database collection"),
     search_query: str = Query(..., description="The text input typed by the user")
 ):
-    user_query = search_query.strip()
-    coll_name = constituency_collection.strip()
+    # Find the target database dynamically based on what FlutterFlow passes
+    target_db = CONSTITUENCY_DATABASES.get(constituency_collection.strip())
     
-    if not user_query or not coll_name:
-        return {"results": []}
-        
-    # Standardize the collection key name for our dictionary cache lookup
-    db_key = coll_name.replace("-", "_").strip()
-    
-    # 💡 ON-DEMAND LOADING LOGIC
-    # If this constituency's data is NOT in memory yet, pull it from Firestore right now!
-    if db_key not in CONSTITUENCY_DATABASES:
-        print(f"📥 Cache Miss! Fetching '{coll_name}' dynamically from Firestore...")
-        try:
-            coll_ref = db.collection(coll_name)
-            docs = coll_ref.get() # Blazing fast chunk fetch (Takes ~2-3 seconds for 3 lac rows)
-            
-            records = []
-            for doc in docs:
-                records.append(doc.to_dict())
-                
-            # Save into our RAM cache dictionary for instant future lookups
-            CONSTITUENCY_DATABASES[db_key] = records
-            print(f"💾 Cache Loaded! '{coll_name}' with {len(records)} voters is now safely stored in RAM.")
-            
-        except Exception as e:
-            print(f"❌ Failed to fetch collection '{coll_name}' from Firestore: {e}")
-            return {"error": f"Constituency database connection failed.", "results": []}
-
-    # Pull the targeted data dataset instantly from our RAM cache dictionary
-    target_db = CONSTITUENCY_DATABASES.get(db_key)
     if not target_db:
-        return {"results": []}
+        return target_db if target_db is not None else []
+        
+    user_query = search_query.strip()
+    if not user_query:
+        return []
 
     results = []
     query_words = [w.lower() for w in user_query.split() if w]
@@ -90,16 +75,16 @@ def search_voters(
             break
 
     if exact_epic_found:
-        return {"results": [exact_epic_record]}
+        return [exact_epic_record]
 
-    # 2. SECOND PASS: Multi-Word Substring Token Filtering & Fuzzy Logic Fallback
+    # 2. SECOND PASS: Multi-Word Substring Token Filtering
     for record in target_db:
         name_en = f"{str(record.get('votersname', ''))} {str(record.get('fatherhusbandname', ''))}".lower()
         name_gj = f"{str(record.get('votersnameguj', ''))} {str(record.get('fatherhusbandnameguj', ''))}".lower()
         epic = str(record.get('epicnumber', '')).lower()
         area = str(record.get('voterarea', '')).lower()
         
-        if len(query_words) == 1 and query_words[0] in epic:
+        if len(query_words) == 1 and query_words in epic:
             results.append((100, record))
             continue
 
@@ -125,4 +110,4 @@ def search_voters(
             results.append((100, record))
 
     final_output = [record for score, record in results]
-    return {"results": final_output[:40]}
+    return final_output[:40]
