@@ -1,11 +1,12 @@
 import os
+import json
 import firebase_admin
 from firebase_admin import credentials, firestore
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from rapidfuzz import fuzz
 
-app = FastAPI(title="Voter Search Engine API via Firestore")
+app = FastAPI(title="Dynamic On-Demand Voter Search API")
 
 # Enable CORS so your FlutterFlow app can securely talk to this API
 app.add_middleware(
@@ -16,61 +17,58 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Global dictionary to store voter lists for all constituencies in memory
+# Global dictionary to store voter lists in memory ONLY when requested
 CONSTITUENCY_DATABASES = {}
 
-# Initialize Firebase Admin SDK
-# Ensure 'firebase_credentials.json' is placed in the root folder of your project
-cred = credentials.Certificate("firebase_credentials.json")
-firebase_admin.initialize_app(cred)
-db = firestore.client()
-
-def load_firestore_data():
-    """Firestore માંથી અત્યંત ઝડપથી ૪૫,૦૦૦+ ડેટા RAM માં લોડ કરવાનું ફાસ્ટ ફંક્શન"""
-    print("Fetching dynamic data from Firestore collections...")
-    
-    # ⚠️ અહીં તમારા એક્ટિવ ફાયરબેઝ કલેક્શનનું નામ લખો
-    collections_to_load = [
-        "nikol-master-voterslist"
-    ]
-    
-    for coll_name in collections_to_load:
-        db_key = coll_name.replace("-", "_").strip()
-        records = []
-        
-        try:
-            # 💡 માસ્ટર હેક: એક-એક કરીને સ્ટીમ કરવાને બદલે આખું કલેક્શન એકસાથે ઝડપથી ખેંચી લાવશે
-            coll_ref = db.collection(coll_name)
-            docs = coll_ref.get() # .stream() ને બદલે .get() વાપરવાથી સ્પીડ ૧૦ ગણી વધી જશે
-            
-            for doc in docs:
-                records.append(doc.to_dict())
-                
-            CONSTITUENCY_DATABASES[db_key] = records
-            print(f" Loaded Firestore collection '{coll_name}' as key '{db_key}' with {len(records)} voters into RAM.")
-        except Exception as e:
-            print(f"❌ Error loading Firestore collection {coll_name}: {e}")
-
-
-# Load all Firestore databases instantly when the server launches
-print("Initializing databases into server RAM from Firestore...")
-load_firestore_data()
-
+# Initialize Firebase Admin SDK using Render's Environment Variable
+# This keeps your credentials secure and avoids GitHub security alerts!
+try:
+    service_account_info = json.loads(os.environ.get("FIREBASE_KEY_JSON"))
+    cred = credentials.Certificate(service_account_info)
+    firebase_admin.initialize_app(cred)
+    db = firestore.client()
+    print("🚀 Firebase Admin SDK initialized successfully via Environment Variables.")
+except Exception as e:
+    print(f"❌ Critical Error initializing Firebase: {e}")
+    print("Ensure you have set the 'FIREBASE_KEY_JSON' variable in Render Environment settings.")
 
 @app.get("/search")
 def search_voters(
     constituency_collection: str = Query(..., description="The name of the database collection"),
     search_query: str = Query(..., description="The text input typed by the user")
 ):
-    # Standardize incoming key name to match our database key
-    standardized_key = constituency_collection.replace("-", "_").strip()
-    target_db = CONSTITUENCY_DATABASES.get(standardized_key)
-    
-    if not target_db:
-        return {"error": f"Database collection '{constituency_collection}' not found on server.", "results": []}
-        
     user_query = search_query.strip()
-    if not user_query:
+    coll_name = constituency_collection.strip()
+    
+    if not user_query or not coll_name:
+        return {"results": []}
+        
+    # Standardize the collection key name for our dictionary cache lookup
+    db_key = coll_name.replace("-", "_").strip()
+    
+    # 💡 ON-DEMAND LOADING LOGIC
+    # If this constituency's data is NOT in memory yet, pull it from Firestore right now!
+    if db_key not in CONSTITUENCY_DATABASES:
+        print(f"📥 Cache Miss! Fetching '{coll_name}' dynamically from Firestore...")
+        try:
+            coll_ref = db.collection(coll_name)
+            docs = coll_ref.get() # Blazing fast chunk fetch (Takes ~2-3 seconds for 3 lac rows)
+            
+            records = []
+            for doc in docs:
+                records.append(doc.to_dict())
+                
+            # Save into our RAM cache dictionary for instant future lookups
+            CONSTITUENCY_DATABASES[db_key] = records
+            print(f"💾 Cache Loaded! '{coll_name}' with {len(records)} voters is now safely stored in RAM.")
+            
+        except Exception as e:
+            print(f"❌ Failed to fetch collection '{coll_name}' from Firestore: {e}")
+            return {"error": f"Constituency database connection failed.", "results": []}
+
+    # Pull the targeted data dataset instantly from our RAM cache dictionary
+    target_db = CONSTITUENCY_DATABASES.get(db_key)
+    if not target_db:
         return {"results": []}
 
     results = []
@@ -94,14 +92,14 @@ def search_voters(
     if exact_epic_found:
         return {"results": [exact_epic_record]}
 
-    # 2. SECOND PASS: Multi-Word Substring Token Filtering
+    # 2. SECOND PASS: Multi-Word Substring Token Filtering & Fuzzy Logic Fallback
     for record in target_db:
         name_en = f"{str(record.get('votersname', ''))} {str(record.get('fatherhusbandname', ''))}".lower()
         name_gj = f"{str(record.get('votersnameguj', ''))} {str(record.get('fatherhusbandnameguj', ''))}".lower()
         epic = str(record.get('epicnumber', '')).lower()
         area = str(record.get('voterarea', '')).lower()
         
-        if len(query_words) == 1 and query_words in epic:
+        if len(query_words) == 1 and query_words[0] in epic:
             results.append((100, record))
             continue
 
