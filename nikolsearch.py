@@ -15,7 +15,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-CSV_FILENAME = "nikol_master_voterslist.csv"
+CSV_FILENAME = "nikol-master-voterslist.csv"
 VOTER_DATABASE = []
 
 def load_nikol_data():
