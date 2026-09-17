@@ -50,11 +50,11 @@ def search_voters(
     target_db = CONSTITUENCY_DATABASES.get(constituency_collection.strip())
     
     if not target_db:
-        return target_db if target_db is not None else []
+        return {"error": f"Database collection '{constituency_collection}' not found on server.", "results": []}
         
     user_query = search_query.strip()
     if not user_query:
-        return []
+        return {"results": []}
 
     results = []
     query_words = [w.lower() for w in user_query.split() if w]
@@ -75,7 +75,7 @@ def search_voters(
             break
 
     if exact_epic_found:
-        return [exact_epic_record]
+        return {"results": [exact_epic_record]}
 
     # 2. SECOND PASS: Multi-Word Substring Token Filtering
     for record in target_db:
@@ -110,4 +110,4 @@ def search_voters(
             results.append((100, record))
 
     final_output = [record for score, record in results]
-    return final_output[:40]
+    return {"results": final_output[:40]}
