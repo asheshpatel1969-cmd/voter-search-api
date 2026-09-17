@@ -4,7 +4,7 @@ from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from rapidfuzz import fuzz
 
-app = FastAPI(title="Voter Search Engine API")
+app = FastAPI(title="Voter Search Engine API - Safe Edition")
 
 # Enable CORS so your FlutterFlow app can securely talk to this API
 app.add_middleware(
@@ -23,14 +23,15 @@ def load_csv_data():
     current_directory = os.getcwd()
     for filename in os.listdir(current_directory):
         if filename.endswith(".csv"):
-            # Strip the '.csv' extension to use as a database key name
             db_key = filename.replace(".csv", "").strip()
             records = []
             try:
                 with open(filename, mode='r', encoding='utf-8-sig') as file:
                     reader = csv.DictReader(file)
                     for row in reader:
-                        records.append(row)
+                        # 💡 Skip completely empty or corrupted dictionary rows instantly during load
+                        if row and any(row.values()):
+                            records.append(row)
                 CONSTITUENCY_DATABASES[db_key] = records
                 print(f" Loaded database key '{db_key}' with {len(records)} voters.")
             except Exception as e:
@@ -46,7 +47,6 @@ def search_voters(
     constituency_collection: str = Query(..., description="The name of the database collection"),
     search_query: str = Query(..., description="The text input typed by the user")
 ):
-    # Find the target database dynamically based on what FlutterFlow passes
     target_db = CONSTITUENCY_DATABASES.get(constituency_collection.strip())
     
     if not target_db:
@@ -65,7 +65,10 @@ def search_voters(
     exact_epic_record = None
 
     for record in target_db:
-        epic_val = str(record.get('epicnumber', '')).strip().lower()
+        if not record:
+            continue
+        # 💡 Safe extraction using a strict fallback to empty string before lower()
+        epic_val = str(record.get('epicnumber') or '').strip().lower()
         epic_clean = epic_val.replace("/", "").replace(" ", "")
         user_clean = query_clean_single.replace("/", "").replace(" ", "")
         
@@ -77,37 +80,52 @@ def search_voters(
     if exact_epic_found:
         return [exact_epic_record]
 
-    # 2. SECOND PASS: Multi-Word Substring Token Filtering
+    # 2. SECOND PASS: Multi-Word Substring Token Filtering (Strictly Crash-Proofed)
     for record in target_db:
-        name_en = f"{str(record.get('votersname', ''))} {str(record.get('fatherhusbandname', ''))}".lower()
-        name_gj = f"{str(record.get('votersnameguj', ''))} {str(record.get('fatherhusbandnameguj', ''))}".lower()
-        epic = str(record.get('epicnumber', '')).lower()
-        area = str(record.get('voterarea', '')).lower()
-        
-        if len(query_words) == 1 and query_words in epic:
-            results.append((100, record))
+        if not record:
             continue
-
-        all_words_matched = True
-        
-        for word in query_words:
-            word_matched = False
+        try:
+            # 💡 Master Safe Fix: Safely reads properties using 'or' fallback
+            v_name = str(record.get('votersname') or '').strip().lower()
+            f_name = str(record.get('fatherhusbandname') or '').strip().lower()
+            v_name_gj = str(record.get('votersnameguj') or '').strip().lower()
+            f_name_gj = str(record.get('fatherhusbandnameguj') or '').strip().lower()
+            epic = str(record.get('epicnumber') or '').strip().lower()
+            area = str(record.get('voterarea') or '').strip().lower()
             
-            if word in name_en or word in name_gj or word in area:
-                word_matched = True
-            else:
-                all_voter_words = name_en.split() + name_gj.split() + area.split()
-                for v_word in all_voter_words:
-                    if fuzz.ratio(word, v_word) >= 75:
-                        word_matched = True
-                        break
+            # If the row is practically blank text fields, skip it directly
+            if not v_name and not epic:
+                continue
+                
+            name_en = f"{v_name} {f_name}"
+            name_gj = f"{v_name_gj} {f_name_gj}"
             
-            if not word_matched:
-                all_words_matched = False
-                break
+            if len(query_words) == 1 and query_words in epic:
+                results.append((100, record))
+                continue
 
-        if all_words_matched and query_words:
-            results.append((100, record))
+            all_words_matched = True
+            for word in query_words:
+                word_matched = False
+                
+                if word in name_en or word in name_gj or word in area:
+                    word_matched = True
+                else:
+                    all_voter_words = name_en.split() + name_gj.split() + area.split()
+                    for v_word in all_voter_words:
+                        if fuzz.ratio(word, v_word) >= 75:
+                            word_matched = True
+                            break
+                
+                if not word_matched:
+                    all_words_matched = False
+                    break
+
+            if all_words_matched and query_words:
+                results.append((100, record))
+        except Exception:
+            # 💡 If any unpredictable data anomaly occurs, skip this single row silently!
+            continue
 
     final_output = [record for score, record in results]
     return final_output[:40]
