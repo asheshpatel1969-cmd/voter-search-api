@@ -4,7 +4,7 @@ from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from rapidfuzz import fuzz
 
-app = FastAPI(title="Voter Search Engine API - Safe Edition")
+app = FastAPI(title="Voter Search Engine API - Production Edition")
 
 # Enable CORS so your FlutterFlow app can securely talk to this API
 app.add_middleware(
@@ -29,8 +29,8 @@ def load_csv_data():
                 with open(filename, mode='r', encoding='utf-8-sig') as file:
                     reader = csv.DictReader(file)
                     for row in reader:
-                        # 💡 Skip completely empty or corrupted dictionary rows instantly during load
-                        if row and any(row.values()):
+                        # 💡 100% Safe Original Load: pulling all rows into memory without filtering
+                        if row:
                             records.append(row)
                 CONSTITUENCY_DATABASES[db_key] = records
                 print(f" Loaded database key '{db_key}' with {len(records)} voters.")
@@ -67,25 +67,29 @@ def search_voters(
     for record in target_db:
         if not record:
             continue
-        # 💡 Safe extraction using a strict fallback to empty string before lower()
-        epic_val = str(record.get('epicnumber') or '').strip().lower()
-        epic_clean = epic_val.replace("/", "").replace(" ", "")
-        user_clean = query_clean_single.replace("/", "").replace(" ", "")
-        
-        if epic_val == query_clean_single or epic_clean == user_clean:
-            exact_epic_found = True
-            exact_epic_record = record
-            break
+        try:
+            epic_val = str(record.get('epicnumber') or '').strip().lower()
+            if not epic_val:
+                continue
+                
+            epic_clean = epic_val.replace("/", "").replace(" ", "")
+            user_clean = query_clean_single.replace("/", "").replace(" ", "")
+            
+            if epic_val == query_clean_single or epic_clean == user_clean:
+                exact_epic_found = True
+                exact_epic_record = record
+                break
+        except Exception:
+            continue
 
     if exact_epic_found:
         return [exact_epic_record]
 
-    # 2. SECOND PASS: Multi-Word Substring Token Filtering (Strictly Crash-Proofed)
+    # 2. SECOND PASS: Multi-Word Substring Token Filtering (Crash-Proofed)
     for record in target_db:
         if not record:
             continue
         try:
-            # 💡 Master Safe Fix: Safely reads properties using 'or' fallback
             v_name = str(record.get('votersname') or '').strip().lower()
             f_name = str(record.get('fatherhusbandname') or '').strip().lower()
             v_name_gj = str(record.get('votersnameguj') or '').strip().lower()
@@ -93,14 +97,10 @@ def search_voters(
             epic = str(record.get('epicnumber') or '').strip().lower()
             area = str(record.get('voterarea') or '').strip().lower()
             
-            # If the row is practically blank text fields, skip it directly
-            if not v_name and not epic:
-                continue
-                
             name_en = f"{v_name} {f_name}"
             name_gj = f"{v_name_gj} {f_name_gj}"
             
-            if len(query_words) == 1 and query_words in epic:
+            if len(query_words) == 1 and epic and query_words in epic:
                 results.append((100, record))
                 continue
 
@@ -124,7 +124,6 @@ def search_voters(
             if all_words_matched and query_words:
                 results.append((100, record))
         except Exception:
-            # 💡 If any unpredictable data anomaly occurs, skip this single row silently!
             continue
 
     final_output = [record for score, record in results]
