@@ -120,14 +120,12 @@ def search_voters(
 
         # 💡 માસ્ટર સોર્ટિંગ હેક: પહેલા બૂથ નંબર અને પછી સીરીયલ નંબરને ક્રમમાં ગોઠવશે
     # int() નો ઉપયોગ કર્યો છે જેથી ટેક્સ્ટના બદલે ગાણિતિક રીતે ૧, ૨, ૩ ના સાચા ક્રમમાં ગોઠવાય
-    results.sort(
-            key=lambda x: (
-                int(x[1].get('votingboothno') or 0), 
-                int(x[1].get('srno') or 0)
-            )
+    clean_list.sort(
+        key=lambda x: (
+            int(x.get('votingboothno') or 0), 
+            int(x.get('srno') or 0)
         )
-    except Exception as e:
-        print(f"Sorting fallback triggered: {e}")
+    )
 
     # Return top 40 sorted records safely back to FlutterFlow
-    return [voter for score, voter in results][:40]
+    return clean_list[:40]
