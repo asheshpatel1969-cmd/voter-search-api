@@ -118,12 +118,23 @@ def search_voters(
         except Exception:
             continue
 
-        # 💡 માસ્ટર સોર્ટિંગ હેક: પહેલા બૂથ નંબર અને પછી સીરીયલ નંબરને ક્રમમાં ગોઠવશે
-    # int() નો ઉપયોગ કર્યો છે જેથી ટેક્સ્ટના બદલે ગાણિતિક રીતે ૧, ૨, ૩ ના સાચા ક્રમમાં ગોઠવાય
+    # 💡 માસ્ટર સોર્ટિંગ ફિક્સ: આખો ભાગ લૂપની બિલકુલ બહાર (Outside Loop) આવી ગયો છે
+    clean_list = [voter for score, voter in results]
+
+    # 💡 ક્યારેય ક્રેશ ન થાય તેવું સેફ ઈન્ટિજર કન્વર્ઝન ફંક્શન
+    def safe_int(value):
+        if not value:
+            return 0
+        try:
+            return int(float(str(value).strip()))
+        except ValueError:
+            return 0
+
+    # બૂથ નંબર અને સીરીયલ નંબર પ્રમાણે એકદમ સુંદર ચડતો ક્રમ (૧, ૨, ૩)
     clean_list.sort(
         key=lambda x: (
-            int(x.get('votingboothno') or 0), 
-            int(x.get('srno') or 0)
+            safe_int(x.get('votingboothno')), 
+            safe_int(x.get('srno'))
         )
     )
 
