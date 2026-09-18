@@ -127,11 +127,9 @@ def search_voters(
         except Exception:
             continue
 
-
-    # 💡 માસ્ટર સોર્ટિંગ ફિક્સ: આખો ભાગ લૂપની બિલકુલ બહાર (Outside Loop) આવી ગયો છે
+    # 💡 માસ્ટર સોર્ટિંગ: પહેલા બૂથ નંબર અને પછી સીરીયલ નંબરને ક્રમમાં ગોઠવશે
     clean_list = [voter for score, voter in results]
 
-    # 💡 ક્યારેય ક્રેશ ન થાય તેવું સેફ ઈન્ટિજર કન્વર્ઝન ફંક્શન
     def safe_int(value):
         if not value:
             return 0
@@ -140,7 +138,6 @@ def search_voters(
         except ValueError:
             return 0
 
-    # બૂથ નંબર અને સીરીયલ નંબર પ્રમાણે એકદમ સુંદર ચડતો ક્રમ (૧, ૨, ૩)
     clean_list.sort(
         key=lambda x: (
             safe_int(x.get('votingboothno')), 
@@ -148,5 +145,6 @@ def search_voters(
         )
     )
 
-    # Return top 40 sorted records safely back to FlutterFlow
-    return clean_list[:40]
+    # 💡 ફાઇનલ ફ્યુચર-પ્રૂફ ફિક્સ: હવે કોઈ '[:40]' ની મર્યાદા નથી!
+    # ભવિષ્યમાં ૩ લાખ કે ૫ લાખ ડેટા હશે, તો પણ આ બધા જ સાચા મેચ થયેલા રેકોર્ડ્સ ફ્લટરફ્લોને મોકલશે!
+    return clean_list
