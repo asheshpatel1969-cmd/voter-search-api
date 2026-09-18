@@ -118,8 +118,11 @@ def search_voters(
         except Exception:
             continue
 
-    # Sort array strictly by highest match confidence score (Crucial fix)
-    results.sort(key=lambda x: x[0], reverse=True)
-
-    # Return top 40 sorted records safely back to FlutterFlow
-    return [voter for score, voter in results][:40]
+        # 💡 માસ્ટર સોર્ટિંગ હેક: પહેલા બૂથ નંબર અને પછી સીરીયલ નંબરને ક્રમમાં ગોઠવશે
+    # int() નો ઉપયોગ કર્યો છે જેથી ટેક્સ્ટના બદલે ગાણિતિક રીતે ૧, ૨, ૩ ના સાચા ક્રમમાં ગોઠવાય
+    results.sort(
+        key=lambda x: (
+            int(x[1].get('votingboothno') or 0), 
+            int(x[1].get('srno') or 0)
+        )
+    )
