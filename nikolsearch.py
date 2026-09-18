@@ -71,17 +71,22 @@ def search_voters(
     if exact_epic_found:
         return [exact_epic_record]
         
-    # SECOND PASS: Full text / fuzzy token parsing (Your Local logic)
+        # SECOND PASS: Multi-Word Substring Token Filtering (Strict & Safe Edition)
     for record in VOTER_DATABASE:
         if not record:
             continue
         try:
-            name_en = f"{str(record.get('votersname', ''))} {str(record.get('fatherhusbandname', ''))}".lower()
-            name_gj = f"{str(record.get('votersnameguj', ''))} {str(record.get('fatherhusbandnameguj', ''))}".lower()
-            epic = str(record.get('epicnumber', '')).lower()
-            area = str(record.get('voterarea', '')).lower()
+            v_name = str(record.get('votersname') or '').strip().lower()
+            f_name = str(record.get('fatherhusbandname') or '').strip().lower()
+            v_name_gj = str(record.get('votersnameguj') or '').strip().lower()
+            f_name_gj = str(record.get('fatherhusbandnameguj') or '').strip().lower()
+            epic = str(record.get('epicnumber') or '').strip().lower()
+            area = str(record.get('voterarea') or '').strip().lower()
             
-            # Substring lookahead for partial EPIC inputs using query_words[0]
+            name_en = f"{v_name} {f_name}"
+            name_gj = f"{v_name_gj} {f_name_gj}"
+            
+            # Direct partial EPIC string match lookup safely
             if len(query_words) == 1 and query_words[0] in epic:
                 score = fuzz.ratio(query_words[0], epic)
                 results.append((max(score, 85), record))
@@ -94,14 +99,17 @@ def search_voters(
                 word_matched = False
                 best_word_score = 0
                 
+                # 💡 Strict Substring Check: શબ્દ ડાયરેક્ટ નામ કે એરિયામાં હોવો જ જોઈએ
                 if word in name_en or word in name_gj or word in area:
                     word_matched = True
                     best_word_score = 100
                 else:
+                    # જો સ્પેલિંગમાં સામાન્ય ભૂલ (Fuzzy) હોય, તો જ રેશિયો ચેક કરશે
                     all_voter_words = name_en.split() + name_gj.split() + area.split()
                     for v_word in all_voter_words:
+                        # રેશિયો થ્રેશોલ્ડ ૭૫ થી વધારીને ૮૨ (Strict) કરી દીધો છે
                         fuzz_score = fuzz.ratio(word, v_word)
-                        if fuzz_score >= 75:
+                        if fuzz_score >= 82:
                             word_matched = True
                             if fuzz_score > best_word_score:
                                 best_word_score = fuzz_score
@@ -112,11 +120,13 @@ def search_voters(
                 else:
                     total_score += best_word_score
 
+            # 💡 ડબલ કન્ફર્મેશન: જો બધા જ શબ્દો મેચ થાય, તો જ લિસ્ટમાં જશે
             if all_words_matched and query_words:
                 final_score = total_score / len(query_words)
                 results.append((final_score, record))
         except Exception:
             continue
+
 
     # 💡 માસ્ટર સોર્ટિંગ ફિક્સ: આખો ભાગ લૂપની બિલકુલ બહાર (Outside Loop) આવી ગયો છે
     clean_list = [voter for score, voter in results]
