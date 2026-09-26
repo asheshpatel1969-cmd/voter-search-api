@@ -4,7 +4,7 @@ from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from rapidfuzz import fuzz
 
-app = FastAPI(title="Raopura Voter Search API - Pure Aligned Production")
+app = FastAPI(title="Nikol Voter Search API - Pure Aligned Production")
 
 # Enable CORS so your FlutterFlow app can securely talk to this API
 app.add_middleware(
@@ -15,7 +15,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-CSV_FILENAME = "raopura-master-voterslist.csv"
+CSV_FILENAME = "nikol-master-voterslist.csv"
 VOTER_DATABASE = []
 
 def load_nikol_data():
