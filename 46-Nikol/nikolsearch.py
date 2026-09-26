@@ -15,7 +15,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ⚠️ કન્ફિગરેશન નિયમ: ફાઇલનું નામ જે-તે વિધાનસભા પ્રમાણે નીચે સ્ટેપ-૪ મુજબ બદલવાનું રહેશે
+# ⚠️ કન્ફિગરેશન નિયમ: ફાઇલનું નામ જે-તે વિધાનસભા પ્રમાણે નીચે સ્ટેપ મુજબ બદલવાનું રહેશે
 CSV_FILENAME = "nikol-master-voterslist.csv"
 
 voters_db = []
@@ -51,7 +51,7 @@ def read_root():
     return {
         "status": "online", 
         "total_records": len(voters_db),
-        "constituency_scope": CSV_FILENAME.split("-")[0].upper()
+        "constituency_scope": CSV_FILENAME.upper() # 💡 ફિક્સ કરેલી લાઇન: હવે કોઈ ક્રેશ નહીં થાય!
     }
 
 @app.get("/search")
@@ -72,9 +72,10 @@ def search_voters(search_query: str = ""):
         results.sort(key=lambda x: (int(x.get("boothno", 0) or 0), int(x.get("serialno", 0) or 0)))
         return results[:100]
 
-    # 💡 નામ માટે કડક કાયદો (Fuzzy Threshold Rule): સ્કોર 85 કે તેથી વધુ હોય તો જ ડેટા ફિલ્ટર થશે
+    # 💡 નામ માટે કડક ફિલ્ટર (Fuzzy Threshold Rule): સ્કોર 85 કે તેથી વધુ હોય તો જ ડેટા ફિલ્ટર થશે
     for row in voters_db:
-        voter_name = row.get("votersnameeng", "").upper()
+        # તમારી એક્સેલ ફાઇલના સાચા કૉલમનું નામ (votersname) અહીં ડાયરેક્ટ મેચ થશે
+        voter_name = row.get("votersname", "").upper()
         
         # Partial ratio match configuration via RapidFuzz engine
         score = fuzz.partial_ratio(search_query, voter_name)
